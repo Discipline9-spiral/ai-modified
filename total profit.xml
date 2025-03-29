@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bot>
+    <parameters>
+        <tradeType>Digits</tradeType>
+        <contractType>Over/Under</contractType>
+        <defaultCandleInterval>1 minute</defaultCandleInterval>
+        <restartOnError>false</restartOnError>
+        <restartLastTradeOnError>true</restartLastTradeOnError>
+    </parameters>
+    <variables>
+        <!-- Store last 50 trade results -->
+        <variable name="tradeHistory" type="list" maxLength="50" />
+        
+        <!-- Initial prediction list (digits > 2) -->
+        <variable name="predictionList" type="list">3,4,5,6,7,8,9</variable>
+        
+        <!-- Store market trends from external data -->
+        <variable name="marketTrend" type="string" />
+        <variable name="volatilityIndex" type="number" />
+        
+        <!-- Additional Market Indicators -->
+        <variable name="movingAverage" type="number" />
+        <variable name="rsi" type="number" />
+        <variable name="trendStrength" type="number" />
+        
+        <!-- Dynamic trade size based on market conditions -->
+        <variable name="tradeSize" type="number" default="1" />
+        
+        <!-- Track digits 0,1,2 for condition checking -->
+        <variable name="lowDigits" type="list">0,1,2</variable>
+    </variables>
+    <logic>
+        <function name="updatePredictionList">
+            <!-- Count occurrences of each digit and ensure it is below 10% -->
+            <foreach item="digit" in="predictionList">
+                <set name="count" value="countOccurrences(tradeHistory, digit)" />
+                <set name="threshold" value="size(tradeHistory) div 10" />
+                <if condition="count &gt;= threshold">
+                    <remove item="digit" from="predictionList" />
+                </if>
+            </foreach>
+        </function>
+        
+        <function name="checkLowDigits">
+            <!-- Check if 0,1,2 are above 10% in market data -->
+            <set name="lowDigitCount" value="countOccurrences(tradeHistory, lowDigits)" />
+            <set name="lowDigitThreshold" value="size(tradeHistory) div 10" />
+            <if condition="lowDigitCount &gt;= lowDigitThreshold">
+                <log message="Low digits 0,1,2 exceed 10%, switching to alternative strategy." />
+                <set name="predictionList" value="lowDigits" />
+            </if>
+        </function>
+        
+        <function name="analyzeMarket">
+            <!-- Extract market indicators -->
+            <set name="marketTrend" value="getMarketTrend()" />
+            <set name="volatilityIndex" value="getVolatilityIndex()" />
+            <set name="movingAverage" value="getMovingAverage()" />
+            <set name="rsi" value="getRSI()" />
+            <set name="trendStrength" value="getTrendStrength()" />
+            
+            <!-- Adjust trading strategy based on market conditions -->
+            <if condition="marketTrend = 'Bullish' and volatilityIndex &lt; 20">
+                <append item="5" to="predictionList" />
+            </if>
+            <if condition="marketTrend = 'Bearish' and volatilityIndex &gt; 50">
+                <remove item="9" from="predictionList" />
+            </if>
+            
+            <!-- Adjust trade size dynamically -->
+            <if condition="trendStrength &gt; 70 and rsi &gt; 50">
+                <set name="tradeSize" value="2" />
+            </if>
+            <if condition="trendStrength &lt; 30 and rsi &lt; 40">
+                <set name="tradeSize" value="0.5" />
+            </if>
+        </function>
+        
+        <function name="addTradeResult">
+            <parameter name="newResult" />
+            <!-- Maintain a max of 50 trades -->
+            <if condition="size(tradeHistory) &gt;= 50">
+                <remove first from="tradeHistory" />
+            </if>
+            <append item="newResult" to="tradeHistory" />
+            <call function="updatePredictionList" />
+            <call function="checkLowDigits" />
+            <call function="analyzeMarket" />
+        </function>
+        
+        <function name="handleErrors">
+            <parameter name="errorType" />
+            <if condition="errorType = 'ConnectionLost'">
+                <log message="Connection lost. Restarting bot..." />
+                <restart />
+            </if>
+            <if condition="errorType = 'UnexpectedTradeOutcome'">
+                <log message="Unexpected trade outcome. Adjusting strategy..." />
+                <call function="updatePredictionList" />
+            </if>
+        </function>
+    </logic>
+</bot>
